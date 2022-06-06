@@ -2,17 +2,25 @@ package pl.edu.uksw.amap.ocl_jocl;
 
 import static org.jocl.CL.CL_CONTEXT_PLATFORM;
 import static org.jocl.CL.CL_DEVICE_TYPE_GPU;
+import static org.jocl.CL.CL_MEM_COPY_HOST_PTR;
+import static org.jocl.CL.CL_MEM_READ_ONLY;
+import static org.jocl.CL.CL_MEM_READ_WRITE;
+import static org.jocl.CL.CL_TRUE;
 import static org.jocl.CL.clBuildProgram;
+import static org.jocl.CL.clCreateBuffer;
 import static org.jocl.CL.clCreateCommandQueue;
 import static org.jocl.CL.clCreateContext;
 import static org.jocl.CL.clCreateKernel;
 import static org.jocl.CL.clCreateProgramWithSource;
+import static org.jocl.CL.clEnqueueNDRangeKernel;
+import static org.jocl.CL.clEnqueueReadBuffer;
 import static org.jocl.CL.clGetDeviceIDs;
 import static org.jocl.CL.clGetPlatformIDs;
 import static org.jocl.CL.clReleaseCommandQueue;
 import static org.jocl.CL.clReleaseContext;
 import static org.jocl.CL.clReleaseKernel;
 import static org.jocl.CL.clReleaseProgram;
+import static org.jocl.CL.clSetKernelArg;
 
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -36,6 +44,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(binding.getRoot());
 
         initCL();
+        runKernel();
         shutdownCL();
     }
 
@@ -112,11 +121,60 @@ public class MainActivity extends AppCompatActivity {
         clReleaseProgram(program);
     }
 
-    protected final void shutdownCL() {
+    private void shutdownCL() {
         clReleaseKernel(kernel);
         clReleaseCommandQueue(commandQueue);
         clReleaseContext(context);
     }
 
+    private void runKernel(){
+        // Create input- and output data
+        int n = 10;
+        float srcArrayA[] = new float[n];
+        float srcArrayB[] = new float[n];
+        float dstArray[] = new float[n];
+        for (int i=0; i<n; i++)
+        {
+            srcArrayA[i] = i;
+            srcArrayB[i] = i;
+        }
 
+        // Allocate the memory objects for the input- and output data
+        cl_mem srcMemA = clCreateBuffer(context,
+                CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                Sizeof.cl_float * n, Pointer.to(srcArrayA), null);
+        cl_mem srcMemB = clCreateBuffer(context,
+                CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                Sizeof.cl_float * n, Pointer.to(srcArrayB), null);
+        cl_mem dstMem = clCreateBuffer(context,
+                CL_MEM_READ_WRITE,
+                Sizeof.cl_float * n, null, null);
+
+        // Set the arguments for the kernel
+        int a = 0;
+        clSetKernelArg(kernel, a++, Sizeof.cl_mem, Pointer.to(srcMemA));
+        clSetKernelArg(kernel, a++, Sizeof.cl_mem, Pointer.to(srcMemB));
+        clSetKernelArg(kernel, a++, Sizeof.cl_mem, Pointer.to(dstMem));
+
+
+        // Execute the kernel
+        clEnqueueNDRangeKernel(commandQueue, kernel, 1, null,
+                new long[] {n}, null, 0, null, null);
+
+        // Read the output data
+        clEnqueueReadBuffer(commandQueue, dstMem, CL_TRUE, 0,
+                n * Sizeof.cl_float, Pointer.to(dstArray), 0, null, null);
+
+        // Release memory objects
+        CL.clReleaseMemObject(srcMemA);
+        CL.clReleaseMemObject(srcMemB);
+        CL.clReleaseMemObject(dstMem);
+
+        // format output string
+        StringBuilder resultString = new StringBuilder();
+        for (int i = 0; i < n; i++) {
+            resultString.append(String.format("%s * %s = %s\n", srcArrayA[i], srcArrayB[i], dstArray[i]));
+        }
+        System.out.println(resultString);
+    }
 }
