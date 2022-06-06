@@ -25,12 +25,13 @@ import static org.jocl.CL.clSetKernelArg;
 import androidx.appcompat.app.AppCompatActivity;
 
 import android.os.Bundle;
-import android.widget.TextView;
 
 import pl.edu.uksw.amap.ocl_jocl.databinding.ActivityMainBinding;
 
 import org.jocl.CL;
 import org.jocl.*;
+
+import java.io.InputStream;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -43,16 +44,26 @@ public class MainActivity extends AppCompatActivity {
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
-        initCL();
-        runKernel();
-        shutdownCL();
+        InputStream ins = getResources().openRawResource(R.raw.multiply);
+        try {
+            byte[] b = new byte[ins.available()];
+            ins.read(b);
+            String kernelSource = new String(b);
+
+            initCL(kernelSource);
+            runKernel();
+            shutdownCL();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     protected cl_context context;
     protected cl_command_queue commandQueue;
     protected cl_kernel kernel;
 
-    private void initCL() {
+    private void initCL(String programSource) {
         // Enable exceptions and subsequently omit error checks
         CL.setExceptionsEnabled(true);
 
@@ -97,16 +108,6 @@ public class MainActivity extends AppCompatActivity {
         // ---
         // Create compute kernel
         // ---
-
-        final String programSource =
-                "__kernel void "+
-                        "sampleKernel(__global const float *a,"+
-                        "             __global const float *b,"+
-                        "             __global float *c)"+
-                        "{"+
-                        "    int gid = get_global_id(0);"+
-                        "    c[gid] = a[gid] * b[gid];"+
-                        "}";
 
         // Create the program from the source code
         cl_program program = clCreateProgramWithSource(context, 1, new String[]{ programSource }, null, null);
