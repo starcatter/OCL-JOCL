@@ -76,8 +76,8 @@ public class MainActivity extends AppCompatActivity {
 
     private void runMatrixKernel() {
         // create kernel from source
-        String kernelSource = readResourceString(R.raw.matrix);
-        MatrixKernel kernel = new MatrixKernel(ocl, kernelSource);
+        String kernelSource = readResourceString(R.raw.matrix2d);
+        Matrix2DKernel kernel = new Matrix2DKernel(ocl, kernelSource);
 
         // For matrix multiplication, the number of columns in the first matrix must be equal to the
         // number of rows in the second matrix. The resulting matrix, known as the matrix product,
