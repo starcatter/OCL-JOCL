@@ -1,28 +1,23 @@
 package pl.edu.uksw.amap.ocl_jocl;
 
-import androidx.annotation.NonNull;
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.camera.core.CameraSelector;
-import androidx.camera.core.ImageAnalysis;
-import androidx.camera.core.ImageProxy;
-import androidx.camera.lifecycle.ProcessCameraProvider;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
-import androidx.lifecycle.LifecycleOwner;
-
 import android.Manifest;
 import android.content.pm.PackageManager;
-import android.graphics.Bitmap;
-import android.graphics.Matrix;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.camera.core.CameraSelector;
+import androidx.camera.core.ImageAnalysis;
+import androidx.camera.lifecycle.ProcessCameraProvider;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+import androidx.lifecycle.LifecycleOwner;
+
 import com.google.common.util.concurrent.ListenableFuture;
 
-import java.nio.ByteBuffer;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
@@ -31,6 +26,8 @@ import pl.edu.uksw.amap.ocl_jocl.databinding.ActivityMainBinding;
 
 public class MainActivity extends AppCompatActivity {
 
+    private OclContextWrapper contextWrapper;
+
     // UI
     private TextView sampleText;
     private ImageView imageView;
@@ -38,6 +35,7 @@ public class MainActivity extends AppCompatActivity {
 
     // Executor for analyzer
     private Executor executor = Executors.newSingleThreadExecutor();
+    private AnalyzerKernel analyzerKernel;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -59,6 +57,12 @@ public class MainActivity extends AppCompatActivity {
             ActivityCompat.requestPermissions(
                     this, new String[]{Manifest.permission.CAMERA}, 1);
         }
+
+        contextWrapper = new OclContextWrapper();
+        contextWrapper.initCL();
+
+        String kernelSource = ResourceHelper.readResourceString(R.raw.analyzer_basic, this.getResources());
+        analyzerKernel = new AnalyzerKernel(contextWrapper, kernelSource);
     }
 
     public void startCamera(View view){
@@ -73,7 +77,7 @@ public class MainActivity extends AppCompatActivity {
                                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                                 .build();
 
-                imageAnalysis.setAnalyzer(executor, new JavaAnalyzer(sampleText, imageView));
+                imageAnalysis.setAnalyzer(executor, new OclAnalyzer(sampleText, imageView, analyzerKernel));
 
                 // select back facing camera
                 CameraSelector cameraSelector = new CameraSelector.Builder()
@@ -89,4 +93,9 @@ public class MainActivity extends AppCompatActivity {
         button.setEnabled(false);
     }
 
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        contextWrapper.shutdownCL();
+    }
 }

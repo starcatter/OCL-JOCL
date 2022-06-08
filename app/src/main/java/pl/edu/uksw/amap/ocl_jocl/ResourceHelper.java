@@ -6,7 +6,7 @@ import java.io.IOException;
 import java.io.InputStream;
 
 public class ResourceHelper {
-    private static String readResourceString(Resources resources, int resourceId) {
+    public static String readResourceString(int resourceId, Resources resources) {
         InputStream ins = resources.openRawResource(resourceId);
         try {
             byte[] b = new byte[ins.available()];
