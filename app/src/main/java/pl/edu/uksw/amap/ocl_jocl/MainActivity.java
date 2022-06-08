@@ -73,33 +73,7 @@ public class MainActivity extends AppCompatActivity {
                                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                                 .build();
 
-                imageAnalysis.setAnalyzer(executor, imageProxy -> {
-                    ImageProxy.PlaneProxy[] planes = imageProxy.getPlanes();
-                    // get raw image buffer
-                    ByteBuffer inputImageBuffer = planes[0].getBuffer();
-
-                    // create bitmap from buffer
-                    Bitmap bitmapImage = Bitmap.createBitmap(imageProxy.getWidth(), imageProxy.getHeight(), Bitmap.Config.ARGB_8888);
-                    bitmapImage.copyPixelsFromBuffer(inputImageBuffer);
-
-                    // call imageProxy.close() ASAP, have to get transformMatrix before that
-                    Matrix transformMatrix = imageProxy.getImageInfo().getSensorToBufferTransformMatrix();
-                    transformMatrix.postRotate(imageProxy.getImageInfo().getRotationDegrees());
-
-                    imageProxy.close();
-
-                    // resize the bitmap to match imageview
-                    Bitmap scaledBitmap = Bitmap.createScaledBitmap(bitmapImage, imageView.getHeight(), imageView.getWidth(), true);
-
-                    // transform the bitmap to match camera orientation
-                    Bitmap finalBitmap = Bitmap.createBitmap(scaledBitmap, 0, 0, imageView.getHeight(), imageView.getWidth(), transformMatrix, true);
-
-                    // enqueue imageView update
-                    imageView.post(() -> imageView.setImageBitmap(finalBitmap));
-
-                    // enqueue text field update
-                    sampleText.post(() -> sampleText.setText(String.format(java.util.Locale.US, "[%d x %s] -> [%d x %d]", bitmapImage.getWidth(), bitmapImage.getHeight(), imageView.getWidth(), imageView.getHeight())));
-                });
+                imageAnalysis.setAnalyzer(executor, new JavaAnalyzer(sampleText, imageView));
 
                 // select back facing camera
                 CameraSelector cameraSelector = new CameraSelector.Builder()
