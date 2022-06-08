@@ -1,141 +1,118 @@
 package pl.edu.uksw.amap.ocl_jocl;
 
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.camera.core.CameraSelector;
+import androidx.camera.core.ImageAnalysis;
+import androidx.camera.core.ImageProxy;
+import androidx.camera.lifecycle.ProcessCameraProvider;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+import androidx.lifecycle.LifecycleOwner;
 
+import android.Manifest;
+import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.Matrix;
 import android.os.Bundle;
+import android.view.View;
+import android.widget.Button;
+import android.widget.ImageView;
+import android.widget.TextView;
+
+import com.google.common.util.concurrent.ListenableFuture;
+
+import java.nio.ByteBuffer;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 
 import pl.edu.uksw.amap.ocl_jocl.databinding.ActivityMainBinding;
 
-import java.io.IOException;
-import java.io.InputStream;
-
 public class MainActivity extends AppCompatActivity {
 
-    private ActivityMainBinding binding;
-    private OclContextWrapper ocl;
+    // UI
+    private TextView sampleText;
+    private ImageView imageView;
+    private Button button;
 
-    private String readResourceString(int resourceId) {
-        InputStream ins = getResources().openRawResource(resourceId);
-        try {
-            byte[] b = new byte[ins.available()];
-            ins.read(b);
-            return new String(b);
-        } catch (IOException e) {
-            throw new RuntimeException("Error reading resource id:" + resourceId, e);
-        }
-    }
+    // Executor for analyzer
+    private Executor executor = Executors.newSingleThreadExecutor();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        binding = ActivityMainBinding.inflate(getLayoutInflater());
+        ActivityMainBinding binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
-        ocl = new OclContextWrapper();
-        ocl.initCL();
+        // bind UI elements
+        sampleText = binding.sampleText;
+        imageView = binding.imageView;
+        button = binding.button;
 
-        //runMultiplyKernel();
-        runMatrixKernel();
+        // bind button action
+        button.setOnClickListener(this::startCamera);
 
-        ocl.shutdownCL();
+        // Request camera permissions
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(
+                    this, new String[]{Manifest.permission.CAMERA}, 1);
+        }
     }
 
-    private void runMultiplyKernel() {
-        // create kernel from source
-        String kernelSource = readResourceString(R.raw.multiply);
-        MultiplyKernel kernel = new MultiplyKernel(ocl, kernelSource);
+    public void startCamera(View view){
+        final ListenableFuture<ProcessCameraProvider> cameraProviderFuture = ProcessCameraProvider.getInstance(this);
+        cameraProviderFuture.addListener(() -> {
+            try {
+                ProcessCameraProvider cameraProvider = cameraProviderFuture.get();
 
-        // Create input- and output data
-        int n = 3;
+                ImageAnalysis imageAnalysis =
+                        new ImageAnalysis.Builder()
+                                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
+                                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                                .build();
 
-        float[] srcArrayA = new float[n];
-        float[] srcArrayB = new float[n];
-        float[] dstArray = new float[n];
+                imageAnalysis.setAnalyzer(executor, imageProxy -> {
+                    ImageProxy.PlaneProxy[] planes = imageProxy.getPlanes();
+                    // get raw image buffer
+                    ByteBuffer inputImageBuffer = planes[0].getBuffer();
 
-        for (int i = 0; i < n; i++) {
-            srcArrayA[i] = i;
-            srcArrayB[i] = i;
-        }
+                    // create bitmap from buffer
+                    Bitmap bitmapImage = Bitmap.createBitmap(imageProxy.getWidth(), imageProxy.getHeight(), Bitmap.Config.ARGB_8888);
+                    bitmapImage.copyPixelsFromBuffer(inputImageBuffer);
 
-        // run kernel
-        kernel.multiply(srcArrayA, srcArrayB, dstArray);
+                    // call imageProxy.close() ASAP, have to get transformMatrix before that
+                    Matrix transformMatrix = imageProxy.getImageInfo().getSensorToBufferTransformMatrix();
+                    transformMatrix.postRotate(imageProxy.getImageInfo().getRotationDegrees());
 
-        // cleanup
-        kernel.free();
+                    imageProxy.close();
 
-        // format output string
-        StringBuilder resultString = new StringBuilder();
-        for (int i = 0; i < n; i++) {
-            resultString.append(String.format("%s * %s = %s\n", srcArrayA[i], srcArrayB[i], dstArray[i]));
-        }
+                    // resize the bitmap to match imageview
+                    Bitmap scaledBitmap = Bitmap.createScaledBitmap(bitmapImage, imageView.getHeight(), imageView.getWidth(), true);
 
-        binding.sampleText.setText(resultString);
-    }
+                    // transform the bitmap to match camera orientation
+                    Bitmap finalBitmap = Bitmap.createBitmap(scaledBitmap, 0, 0, imageView.getHeight(), imageView.getWidth(), transformMatrix, true);
 
+                    // enqueue imageView update
+                    imageView.post(() -> imageView.setImageBitmap(finalBitmap));
 
-    private void runMatrixKernel() {
-        // create kernel from source
-        String kernelSource = readResourceString(R.raw.matrix2d);
-        Matrix2DKernel kernel = new Matrix2DKernel(ocl, kernelSource);
+                    // enqueue text field update
+                    sampleText.post(() -> sampleText.setText(String.format(java.util.Locale.US, "[%d x %s] -> [%d x %d]", bitmapImage.getWidth(), bitmapImage.getHeight(), imageView.getWidth(), imageView.getHeight())));
+                });
 
-        // For matrix multiplication, the number of columns in the first matrix must be equal to the
-        // number of rows in the second matrix. The resulting matrix, known as the matrix product,
-        // has the number of rows of the first and the number of columns of the second matrix.
-        // C=AB
-        // matrix A is m*n
-        // matrix B is n*p
-        // matrix C is m*p
-        // m == p
+                // select back facing camera
+                CameraSelector cameraSelector = new CameraSelector.Builder()
+                        .requireLensFacing(CameraSelector.LENS_FACING_BACK)
+                        .build();
 
-        // Create input- and output data
-        int m = 3;
-        int n = 2;
-        int p = 3;
-
-        float[] srcArrayA = new float[m * n];
-        float[] srcArrayB = new float[n * p];
-        float[] dstArray = new float[m * p];
-
-        for (int i = 0; i < n*p; i++) {
-            srcArrayA[i] = i+1;
-            srcArrayB[i] = i+1;
-        }
-
-        // run kernel
-        kernel.multiplyMatrix(srcArrayA, srcArrayB, dstArray, m, n, p);
-
-        // cleanup
-        kernel.free();
-
-        // format output string
-        StringBuilder resultString = new StringBuilder();
-        for (int i = 0; i < m; i++) {
-            for (int j = 0; j < n; j++) {
-                resultString.append("[").append(srcArrayA[j*m + i]).append("] ");
+                cameraProvider.bindToLifecycle((LifecycleOwner) this, cameraSelector, imageAnalysis);
+            } catch (ExecutionException | InterruptedException e) {
+                e.printStackTrace();
             }
-            resultString.append("\n");
-        }
+        }, ContextCompat.getMainExecutor(this));
 
-        resultString.append("*\n");
-
-        for (int i = 0; i < n; i++) {
-            for (int j = 0; j < p; j++) {
-                resultString.append("[").append(srcArrayB[j*n + i]).append("] ");
-            }
-            resultString.append("\n");
-        }
-
-        resultString.append("=\n");
-
-        for (int i = 0; i < m; i++) {
-            for (int j = 0; j < p; j++) {
-                resultString.append("[").append(dstArray[j*m + i]).append("] ");
-            }
-            resultString.append("\n");
-        }
-
-        binding.sampleText.setText(resultString);
+        button.setEnabled(false);
     }
 
 }
